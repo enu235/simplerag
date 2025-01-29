@@ -111,18 +111,23 @@ def get_surrounding_chunks(vectorstore: Chroma, doc: Document, window: int = 3) 
 
 def expand_retrieved_documents(vectorstore: Chroma, docs: List[Document], window: int = 3) -> List[Document]:
     """Expand the retrieved documents with surrounding context."""
-    expanded_docs = set()  # Use set to avoid duplicates
+    # Use a dictionary with tuple of source and chunk_idx as key to avoid duplicates
+    expanded_docs_dict = {}
     
     for doc in docs:
-        # Add the original document
-        expanded_docs.add(doc)
+        # Create a key from source and chunk_idx
+        key = (doc.metadata.get('source', ''), doc.metadata.get('chunk_idx', 0))
+        expanded_docs_dict[key] = doc
+        
         # Get and add surrounding chunks
         surrounding_chunks = get_surrounding_chunks(vectorstore, doc, window)
-        expanded_docs.update(surrounding_chunks)
+        for chunk in surrounding_chunks:
+            chunk_key = (chunk.metadata.get('source', ''), chunk.metadata.get('chunk_idx', 0))
+            expanded_docs_dict[chunk_key] = chunk
     
     # Convert back to list and sort by source and chunk index
     sorted_docs = sorted(
-        expanded_docs,
+        expanded_docs_dict.values(),
         key=lambda x: (
             x.metadata.get('source', ''),
             x.metadata.get('chunk_idx', 0)
