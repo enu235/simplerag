@@ -101,7 +101,13 @@
             loadingDiv.style.display = 'block';
 
             try {
-                const response = await fetch('/query', {
+                // Create message container for streaming response
+                const messageDiv = document.createElement('div');
+                messageDiv.className = 'message answer';
+                chatContainer.appendChild(messageDiv);
+
+                // Create EventSource for streaming
+                const response = await fetch('/stream', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -109,13 +115,51 @@
                     body: JSON.stringify({ question }),
                 });
 
-                const data = await response.json();
-                
-                if (response.ok) {
-                    appendMessage('answer', data.answer, data.sources);
-                } else {
-                    appendMessage('answer', 'Error: ' + data.error);
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let responseText = '';
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const data = JSON.parse(line.slice(6));
+                            
+                            switch (data.type) {
+                                case 'start':
+                                    // Clear any existing content
+                                    messageDiv.textContent = '';
+                                    break;
+                                
+                                case 'token':
+                                    // Append new token
+                                    responseText += data.content;
+                                    messageDiv.textContent = responseText;
+                                    break;
+                                
+                                case 'end':
+                                    // Add sources if available
+                                    if (data.sources && data.sources.length > 0) {
+                                        const sourcesDiv = document.createElement('div');
+                                        sourcesDiv.className = 'sources';
+                                        sourcesDiv.textContent = 'Sources: ' + data.sources.join(', ');
+                                        messageDiv.appendChild(sourcesDiv);
+                                    }
+                                    break;
+                                
+                                case 'error':
+                                    messageDiv.textContent = 'Error: ' + data.content;
+                                    break;
+                            }
+                        }
+                    }
                 }
+
             } catch (error) {
                 appendMessage('answer', 'Error: Failed to get response');
             }

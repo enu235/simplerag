@@ -1,6 +1,7 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, Response
 from query_documents import initialize_rag
 import logging
+import json
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -21,8 +22,8 @@ except Exception as e:
 def home():
     return render_template('index.html')
 
-@app.route('/query', methods=['POST'])
-def query():
+@app.route('/stream', methods=['POST'])
+def stream():
     if not qa_chain:
         return jsonify({'error': 'RAG system not initialized'}), 500
 
@@ -31,29 +32,49 @@ def query():
         if not question:
             return jsonify({'error': 'Please enter a valid question'}), 400
 
-        # Process the question
-        result = qa_chain({
-            "question": question,
-            "chat_history": chat_history
-        })
+        def generate():
+            # Send the starting message
+            yield 'data: {"type": "start"}\n\n'
 
-        # Format sources
-        sources = []
-        if result.get("source_documents"):
-            sources = [doc.metadata.get('source', 'Unknown source') 
-                      for doc in result["source_documents"]]
+            # Process the question with streaming
+            result = qa_chain({
+                "question": question,
+                "chat_history": chat_history
+            })
 
-        # Add to chat history
-        chat_history.append((question, result["answer"]))
+            # Stream the answer word by word
+            words = result["answer"].split()
+            for i, word in enumerate(words):
+                data = {
+                    "type": "token",
+                    "content": word + (" " if i < len(words) - 1 else "")
+                }
+                yield f'data: {json.dumps(data)}\n\n'
 
-        return jsonify({
-            'answer': result["answer"],
-            'sources': sources
-        })
+            # Send sources at the end
+            sources = []
+            if result.get("source_documents"):
+                sources = [doc.metadata.get('source', 'Unknown source') 
+                          for doc in result["source_documents"]]
+            
+            data = {
+                "type": "end",
+                "sources": sources
+            }
+            yield f'data: {json.dumps(data)}\n\n'
+
+            # Add to chat history after completion
+            chat_history.append((question, result["answer"]))
+
+        return Response(generate(), mimetype='text/event-stream')
 
     except Exception as e:
         logger.error(f"Error processing question: {str(e)}")
-        return jsonify({'error': 'An error occurred processing your question'}), 500
+        error_data = {
+            "type": "error",
+            "content": "An error occurred processing your question"
+        }
+        return f'data: {json.dumps(error_data)}\n\n'
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000) 

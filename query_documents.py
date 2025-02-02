@@ -176,7 +176,8 @@ def initialize_rag():
                 temperature=0.7,
                 max_tokens=-1,
                 openai_api_base="http://localhost:1234/v1",
-                openai_api_key="lm-studio"
+                openai_api_key="lm-studio",
+                streaming=True,
             )
             logger.info("Successfully initialized LLM")
         except Exception as e:
